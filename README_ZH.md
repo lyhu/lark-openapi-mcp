@@ -76,38 +76,78 @@
 }
 ```
 
-如需使用**用户身份**访问 API：
-1) 在终端运行 `login`（会保存令牌，后续客户端可直接复用）。
-2) 在 MCP Client 配置中加入 `--oauth`。
+如需使用**用户身份**访问 API，推荐直接以 `user_access_token` 模式启动 MCP。
 
-注意需要先在开发者后台配置应用的重定向 URL，默认是 `http://localhost:3000/callback`。
+当前项目支持以下体验：
+
+1. 启动 `mcp` 时自动检查本地是否已有有效用户登录态
+2. 如果没有有效登录态，会自动拉起本地授权流程
+3. 用户在浏览器完成授权后，MCP 服务继续启动
+4. 后续业务服务或 MCP Client 直接连接 `http://127.0.0.1:3000/mcp`
+
+注意：
+
+- 需要先在开发者后台配置 OAuth 2.0 重定向 URL，默认是 `http://localhost:3000/callback`
+- 启动命令执行期间，终端需要保持运行
+- 如果是从源码构建运行，`dist/` 可以直接执行，但仍依赖 `node_modules/`
+
+### 从源码构建并运行
 
 ```bash
-npx -y @larksuiteoapi/lark-mcp login -a cli_xxxx -s yyyyy
+yarn install
+yarn build
+node dist/cli.js mcp \
+  -a cli_a92f********9379 \
+  -s 2T5a**************************u5 \
+  --domain https://open.xfchat.iflytek.com \
+  --token-mode user_access_token \
+  -m streamable \
+  --host 0.0.0.0 \
+  -p 3000 \
+  -l zh
 ```
 
-然后在 MCP Client 中启用 `--oauth`
+如果本地没有有效登录态，这条命令会先自动进入授权流程；授权完成后，MCP 服务才会真正监听 `3000` 端口。
+
+### MCP Client 配置示例
+
+如果你已经在本机单独启动了 MCP HTTP 服务，推荐在客户端里直接配置 URL：
 
 ```json
 {
   "mcpServers": {
     "lark-mcp": {
-      "command": "npx",
+      "url": "http://127.0.0.1:3000/mcp"
+    }
+  }
+}
+```
+
+如果你仍然希望由客户端直接拉起命令，可使用：
+
+```json
+{
+  "mcpServers": {
+    "lark-mcp": {
+      "command": "node",
       "args": [
-        "-y",
-        "@larksuiteoapi/lark-mcp",
+        "dist/cli.js",
         "mcp",
         "-a", "<your_app_id>",
         "-s", "<your_app_secret>",
-        "--oauth",
-        "--token-mode", "user_access_token"
+        "--domain", "https://open.xfchat.iflytek.com",
+        "--token-mode", "user_access_token",
+        "-m", "streamable",
+        "--host", "0.0.0.0",
+        "-p", "3000",
+        "-l", "zh"
       ]
     }
   }
 }
 ```
 
-说明：在启用 `--oauth` 时，建议显式设置 `--token-mode` 为 `user_access_token`，表示以用户访问令牌调用 API，适用于访问用户资源或需要用户授权的场景（如读取个人文档、发送 IM 消息）。若保留默认 `auto`，可能在AI推理使用 `tenant_access_token`，导致权限不足或无法访问用户私有数据。
+说明：建议显式设置 `--token-mode` 为 `user_access_token`，表示以用户访问令牌调用 API，适用于访问用户资源或需要用户授权的场景（如读取个人文档、发送 IM 消息）。若保留默认 `auto`，可能在 AI 推理时回退到 `tenant_access_token`，导致权限不足或无法访问用户私有数据。
 
 ### 域名配置
 
