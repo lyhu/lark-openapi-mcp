@@ -1,7 +1,7 @@
 import express, { NextFunction, Request, Response } from 'express';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { InitTransportServerFunction } from '../shared';
-import { LarkAuthHandler } from '../../auth';
+import { authStore, LarkAuthHandler } from '../../auth';
 import { parseMCPServerOptionsFromRequest } from './utils';
 import { logger } from '../../utils/logger';
 
@@ -10,7 +10,7 @@ export const initSSEServer: InitTransportServerFunction = (
   options,
   { needAuthFlow } = { needAuthFlow: false },
 ) => {
-  const { userAccessToken, port, host, oauth } = options;
+  const { userAccessToken, port, host, oauth, appId } = options;
 
   if (!port || !host) {
     throw new Error('[Lark MCP] Port and host are required');
@@ -45,7 +45,17 @@ export const initSSEServer: InitTransportServerFunction = (
 
     const token = req.auth?.token;
     const { data } = parseMCPServerOptionsFromRequest(req);
-    const server = getNewServer({ ...options, ...data, userAccessToken: data.userAccessToken || token }, authHandler);
+    const requestAppId = data.appId || appId;
+    const fallbackUserAccessToken =
+      data.userAccessToken ||
+      token ||
+      (requestAppId
+        ? {
+            getter: async () => await authStore.getLocalAccessToken(requestAppId),
+          }
+        : undefined);
+
+    const server = getNewServer({ ...options, ...data, userAccessToken: fallbackUserAccessToken }, authHandler);
     const transport = new SSEServerTransport('/messages', res);
     transports.set(transport.sessionId, transport);
 

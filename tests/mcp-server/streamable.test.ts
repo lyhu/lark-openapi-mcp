@@ -2,7 +2,7 @@ import express from 'express';
 import { initStreamableServer } from '../../src/mcp-server/transport/streamable';
 import { McpServerOptions } from '../../src/mcp-server/shared/types';
 import { parseMCPServerOptionsFromRequest, sendJsonRpcError } from '../../src/mcp-server/transport/utils';
-import { LarkAuthHandler } from '../../src/auth';
+import { authStore, LarkAuthHandler } from '../../src/auth';
 
 // 模拟依赖
 jest.mock('express', () => {
@@ -59,6 +59,9 @@ jest.mock('../../src/mcp-server/transport/utils', () => ({
 }));
 
 jest.mock('../../src/auth', () => ({
+  authStore: {
+    getLocalAccessToken: jest.fn().mockResolvedValue('stored-local-token'),
+  },
   LarkAuthHandler: jest.fn().mockImplementation(() => ({
     setupRoutes: jest.fn(),
     authenticateRequest: jest.fn((req, res, next) => next()),
@@ -221,15 +224,16 @@ describe('initStreamableServer', () => {
     // 调用POST路由处理器
     await postRouteHandler(mockReq, mockRes);
 
-    // 验证服务器被创建时没有userAccessToken
     expect(getMockServer).toHaveBeenCalledWith(
-      {
+      expect.objectContaining({
         appId: 'mock-app-id',
         appSecret: 'mock-app-secret',
         host: 'localhost',
         port: 3000,
-        userAccessToken: undefined,
-      },
+        userAccessToken: expect.objectContaining({
+          getter: expect.any(Function),
+        }),
+      }),
       undefined,
     );
   });
@@ -258,15 +262,16 @@ describe('initStreamableServer', () => {
     // 调用POST路由处理器
     await postRouteHandler(mockReq, mockRes);
 
-    // 验证token为undefined
     expect(getMockServer).toHaveBeenCalledWith(
-      {
+      expect.objectContaining({
         appId: 'mock-app-id',
         appSecret: 'mock-app-secret',
         host: 'localhost',
         port: 3000,
-        userAccessToken: undefined,
-      },
+        userAccessToken: expect.objectContaining({
+          getter: expect.any(Function),
+        }),
+      }),
       undefined,
     );
   });
@@ -295,17 +300,44 @@ describe('initStreamableServer', () => {
     // 调用POST路由处理器
     await postRouteHandler(mockReq, mockRes);
 
-    // 验证token为undefined
     expect(getMockServer).toHaveBeenCalledWith(
-      {
+      expect.objectContaining({
         appId: 'mock-app-id',
         appSecret: 'mock-app-secret',
         host: 'localhost',
         port: 3000,
-        userAccessToken: undefined,
-      },
+        userAccessToken: expect.objectContaining({
+          getter: expect.any(Function),
+        }),
+      }),
       undefined,
     );
+  });
+
+  it('应该在没有显式token时回退到本地存储token getter', async () => {
+    const options: McpServerOptions = {
+      appId: 'test-app-id',
+      appSecret: 'test-app-secret',
+      host: 'localhost',
+      port: 3000,
+    };
+
+    const { McpServer } = require('@modelcontextprotocol/sdk/server/mcp.js');
+    const getMockServer = jest.fn().mockReturnValue(new McpServer());
+
+    initStreamableServer(getMockServer, options);
+
+    const mockReq = {
+      query: { appId: 'mock-app-id', appSecret: 'mock-app-secret' },
+      body: { jsonrpc: '2.0', method: 'test' },
+    };
+    const mockRes = createMockResponse();
+
+    await postRouteHandler(mockReq, mockRes);
+
+    const userAccessToken = getMockServer.mock.calls[0][0].userAccessToken;
+    expect(await userAccessToken.getter()).toBe('stored-local-token');
+    expect(authStore.getLocalAccessToken).toHaveBeenCalledWith('mock-app-id');
   });
 
   it('应该处理响应关闭事件', async () => {
@@ -503,7 +535,9 @@ describe('initStreamableServer', () => {
     initStreamableServer(getMockServer, options);
 
     // 验证错误被记录并且进程退出
-    expect(console.error).toHaveBeenCalledWith('[StreamableServerTransport] Server error: Error: Port already in use');
+    expect(console.error).toHaveBeenCalledWith(
+      expect.stringContaining('[StreamableServerTransport] Server error: Error: Port already in use'),
+    );
     expect(process.exit).toHaveBeenCalledWith(1);
   });
 

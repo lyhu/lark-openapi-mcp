@@ -7,6 +7,8 @@ import { currentVersion } from '../../utils/version';
 import { oapiHttpInstance } from '../../utils/http-instance';
 import { LarkAuthHandler } from '../../auth';
 import { logger } from '../../utils/logger';
+import { LoginHandler } from '../../cli/login-handler';
+import { TokenMode } from '../../mcp-tool/types';
 
 export function initOAPIMcpServer(options: McpServerOptions, authHandler?: LarkAuthHandler) {
   const { appId, appSecret, userAccessToken, tokenMode, domain, oauth } = options;
@@ -70,11 +72,28 @@ export function initRecallMcpServer(options: McpServerOptions) {
 }
 
 export async function initMcpServerWithTransport(serverType: McpServerType, options: McpServerOptions) {
-  const { mode, userAccessToken, oauth } = options;
+  const { mode, userAccessToken, oauth, tokenMode, appId, appSecret, domain, port, scope } = options;
 
   if (userAccessToken && oauth) {
     logger.error(`[initMcpServerWithTransport] userAccessToken and oauth cannot be used together`);
     throw new Error('userAccessToken and oauth cannot be used together');
+  }
+
+  if (
+    serverType === 'oapi' &&
+    tokenMode === TokenMode.USER_ACCESS_TOKEN &&
+    !userAccessToken &&
+    appId &&
+    appSecret
+  ) {
+    await LoginHandler.ensureLogin({
+      appId,
+      appSecret,
+      domain: domain || 'https://open.feishu.cn',
+      host: 'localhost',
+      port: String(port || 3000),
+      scope,
+    });
   }
 
   const getNewServer = (commonOptions?: McpServerOptions, authHandler?: LarkAuthHandler) => {

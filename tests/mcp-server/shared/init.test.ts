@@ -4,6 +4,8 @@ import {
   initRecallMcpServer,
 } from '../../../src/mcp-server/shared/init';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { LoginHandler } from '../../../src/cli/login-handler';
+import { TokenMode } from '../../../src/mcp-tool/types';
 
 // 模拟依赖项
 jest.mock('@modelcontextprotocol/sdk/server/mcp.js', () => ({
@@ -45,6 +47,12 @@ jest.mock('../../../src/mcp-server/transport', () => ({
   initStdioServer: jest.fn().mockImplementation((getNewServer) => {
     getNewServer?.();
   }),
+}));
+
+jest.mock('../../../src/cli/login-handler', () => ({
+  LoginHandler: {
+    ensureLogin: jest.fn().mockResolvedValue(undefined),
+  },
 }));
 
 // 保存原始的环境变量和console.error
@@ -249,6 +257,62 @@ describe('initMcpServerWithTransport', () => {
       mode: 'streamable' as const,
     };
     initMcpServerWithTransport('oapi', options);
+  });
+
+  it('应该在 user_access_token 模式且没有显式 token 时先确保登录', async () => {
+    const options = {
+      appId: 'test-app-id',
+      appSecret: 'test-app-secret',
+      domain: 'https://open.feishu.cn',
+      host: '0.0.0.0',
+      port: 3000,
+      mode: 'streamable' as const,
+      tokenMode: TokenMode.USER_ACCESS_TOKEN,
+    };
+
+    await initMcpServerWithTransport('oapi', options);
+
+    expect(LoginHandler.ensureLogin).toHaveBeenCalledWith({
+      appId: 'test-app-id',
+      appSecret: 'test-app-secret',
+      domain: 'https://open.feishu.cn',
+      host: 'localhost',
+      port: '3000',
+      scope: undefined,
+    });
+  });
+
+  it('显式传入 userAccessToken 时不应该触发自动登录', async () => {
+    const options = {
+      appId: 'test-app-id',
+      appSecret: 'test-app-secret',
+      domain: 'https://open.feishu.cn',
+      host: '0.0.0.0',
+      port: 3000,
+      mode: 'streamable' as const,
+      tokenMode: TokenMode.USER_ACCESS_TOKEN,
+      userAccessToken: 'test-user-token',
+    };
+
+    await initMcpServerWithTransport('oapi', options);
+
+    expect(LoginHandler.ensureLogin).not.toHaveBeenCalled();
+  });
+
+  it('非 user_access_token 模式不应该触发自动登录', async () => {
+    const options = {
+      appId: 'test-app-id',
+      appSecret: 'test-app-secret',
+      domain: 'https://open.feishu.cn',
+      host: '0.0.0.0',
+      port: 3000,
+      mode: 'streamable' as const,
+      tokenMode: TokenMode.TENANT_ACCESS_TOKEN,
+    };
+
+    await initMcpServerWithTransport('oapi', options);
+
+    expect(LoginHandler.ensureLogin).not.toHaveBeenCalled();
   });
 
   it('应该正确初始化Recall MCP服务器', () => {

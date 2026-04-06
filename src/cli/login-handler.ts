@@ -15,6 +15,69 @@ export interface LoginOptions {
 }
 
 export class LoginHandler {
+  static async hasValidLocalToken(appId: string): Promise<boolean> {
+    const accessToken = await authStore.getLocalAccessToken(appId);
+    if (!accessToken) {
+      return false;
+    }
+
+    const token = await authStore.getToken(accessToken);
+    return !isTokenExpired(token);
+  }
+
+  static async performLogin(options: LoginOptions): Promise<boolean> {
+    const { appId, appSecret, domain, host, port, scope, timeout = 60000 } = options;
+
+    if (!appId || !appSecret) {
+      throw new Error('Missing App Credentials (appId and appSecret are required for login)');
+    }
+
+    console.log('🔐 Starting OAuth login process...');
+
+    const app = express();
+    app.use(express.json());
+
+    const authHandler = new LarkAuthHandlerLocal(app, {
+      port: parseInt(port),
+      host,
+      domain,
+      appId,
+      appSecret,
+      scope,
+    });
+    authHandler.setupRoutes();
+
+    const result = await authHandler.reAuthorize(undefined, true);
+
+    if (!result.authorizeUrl) {
+      return false;
+    }
+
+    console.log('📱 Please open the following URL in your browser to complete the login:');
+    console.log(
+      `💡 Note: Please ensure the redirect URL (${authHandler.callbackUrl}) is configured in your app's security settings.`,
+    );
+    console.log(`   If not configured yet, go to: ${domain}/app/${appId}/safe`);
+    console.log('🔗 Authorization URL:');
+    console.log(result.authorizeUrl);
+    console.log('\n⏳ Waiting for authorization... (timeout in 60 seconds)');
+    open(result.authorizeUrl);
+
+    await authStore.removeLocalAccessToken(appId);
+    return await this.checkTokenWithTimeout(timeout, appId);
+  }
+
+  static async ensureLogin(options: LoginOptions): Promise<void> {
+    if (await this.hasValidLocalToken(options.appId)) {
+      return;
+    }
+
+    const success = await this.performLogin(options);
+    if (!success) {
+      throw new Error('Login failed');
+    }
+  }
+
   static async checkTokenWithTimeout(timeout: number, appId: string): Promise<boolean> {
     let time = 0;
     return new Promise((resolve) => {
@@ -34,57 +97,20 @@ export class LoginHandler {
   }
 
   static async handleLogin(options: LoginOptions): Promise<void> {
-    const { appId, appSecret, domain, host, port, scope, timeout = 60000 } = options;
-
-    if (!appId || !appSecret) {
-      console.error('Error: Missing App Credentials (appId and appSecret are required for login)');
-      process.exit(1);
-    }
-
     try {
-      console.log('🔐 Starting OAuth login process...');
-
-      const app = express();
-      app.use(express.json());
-
-      const authHandler = new LarkAuthHandlerLocal(app, {
-        port: parseInt(port),
-        host,
-        domain,
-        appId,
-        appSecret,
-        scope,
-      });
-      authHandler.setupRoutes();
-
-      const result = await authHandler.reAuthorize(undefined, true);
-
-      if (result.authorizeUrl) {
-        console.log('📱 Please open the following URL in your browser to complete the login:');
-        console.log(
-          `💡 Note: Please ensure the redirect URL (${authHandler.callbackUrl}) is configured in your app's security settings.`,
-        );
-        console.log(`   If not configured yet, go to: ${domain}/app/${appId}/safe`);
-        console.log('🔗 Authorization URL:');
-        console.log(result.authorizeUrl);
-        console.log('\n⏳ Waiting for authorization... (timeout in 60 seconds)');
-        open(result.authorizeUrl);
-
-        await authStore.removeLocalAccessToken(appId);
-        const success = await this.checkTokenWithTimeout(timeout, appId);
-
-        if (success) {
-          console.log('✅ Successfully logged in');
-          process.exit(0);
-        } else {
-          console.log('❌ Login failed');
-          process.exit(1);
-        }
-      } else {
-        process.exit(1);
+      const success = await this.performLogin(options);
+      if (success) {
+        console.log('✅ Successfully logged in');
+        process.exit(0);
       }
+      console.log('❌ Login failed');
+      process.exit(1);
     } catch (error) {
-      console.error('❌ Login failed:', error);
+      if ((error as Error).message?.startsWith('Missing App Credentials')) {
+        console.error(`Error: ${(error as Error).message}`);
+      } else {
+        console.error('❌ Login failed:', error);
+      }
       process.exit(1);
     }
   }

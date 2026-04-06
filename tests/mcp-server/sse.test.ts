@@ -3,7 +3,7 @@ import { initSSEServer } from '../../src/mcp-server/transport/sse';
 import { McpServerOptions } from '../../src/mcp-server/shared/types';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { parseMCPServerOptionsFromRequest } from '../../src/mcp-server/transport/utils';
-import { LarkAuthHandler } from '../../src/auth';
+import { authStore, LarkAuthHandler } from '../../src/auth';
 
 // 创建可跟踪的模拟函数
 const handlePostMessageMock = jest.fn().mockResolvedValue(undefined);
@@ -77,6 +77,9 @@ jest.mock('../../src/mcp-server/transport/utils', () => {
 
 // 模拟LarkAuthHandler
 jest.mock('../../src/auth', () => ({
+  authStore: {
+    getLocalAccessToken: jest.fn().mockResolvedValue('stored-local-token'),
+  },
   LarkAuthHandler: jest.fn().mockImplementation(() => ({
     setupRoutes: jest.fn(),
     authenticateRequest: jest.fn((req, res, next) => next()),
@@ -307,7 +310,9 @@ describe('initSSEServer', () => {
     initSSEServer(() => mockServer, options);
 
     // 验证错误被记录并且进程退出
-    expect(console.error).toHaveBeenCalledWith('[SSEServerTransport] Server error: Error: Port already in use');
+    expect(console.error).toHaveBeenCalledWith(
+      expect.stringContaining('[SSEServerTransport] Server error: Error: Port already in use'),
+    );
     expect(process.exit).toHaveBeenCalledWith(1);
   });
 
@@ -434,6 +439,31 @@ describe('initSSEServer', () => {
     await sseRouteHandler(mockReq, mockRes);
 
     expect(parseMCPServerOptionsFromRequest).toHaveBeenCalledWith(mockReq);
+  });
+
+  it('应该在没有显式token时回退到本地存储token getter', async () => {
+    const options: McpServerOptions = {
+      appId: 'test-app-id',
+      appSecret: 'test-app-secret',
+      host: 'localhost',
+      port: 3000,
+    };
+
+    const { McpServer } = require('@modelcontextprotocol/sdk/server/mcp.js');
+    const mockServer = new McpServer();
+
+    const getNewServerMock = jest.fn().mockReturnValue(mockServer);
+
+    initSSEServer(getNewServerMock, options);
+
+    const mockReq = {};
+    const mockRes = createMockResponse();
+
+    await sseRouteHandler(mockReq, mockRes);
+
+    const userAccessToken = getNewServerMock.mock.calls[0][0].userAccessToken;
+    expect(await userAccessToken.getter()).toBe('stored-local-token');
+    expect(authStore.getLocalAccessToken).toHaveBeenCalledWith('mock-app-id');
   });
 
   describe('authMiddleware without OAuth', () => {

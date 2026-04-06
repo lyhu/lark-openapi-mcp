@@ -35,3 +35,4 @@ coverage/
 .nyc_output/ 
 
 api-json
+token_result.json
