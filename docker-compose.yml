@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  lark-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: lark-openapi-mcp:latest
+    container_name: lark-mcp-service
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    command: >
+      mcp
+      -a ${appId}
+      -s ${appSecret}
+      --domain https://open.xfchat.iflytek.com
+      --token-mode user_access_token
+      -m streamable
+      --host 0.0.0.0
+      -p 3000
+      -l zh
